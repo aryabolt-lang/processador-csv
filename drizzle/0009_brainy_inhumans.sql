@@ -1,0 +1,1 @@
+ALTER TABLE `protocolos` ADD CONSTRAINT `protocolos_protocolo_documento_unique` UNIQUE(`protocolo`,`documento`);

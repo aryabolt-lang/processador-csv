@@ -8,20 +8,8 @@ export type TrpcContext = {
   user: User | null;
 };
 
-export async function createContext(
-  opts: CreateExpressContextOptions
-): Promise<TrpcContext> {
+export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {
   let user: User | null = null;
-
-  try {
-    user = await authenticateRequest(opts.req);
-  } catch {
-    user = null;
-  }
-
-  return {
-    req: opts.req,
-    res: opts.res,
-    user,
-  };
+  try { user = await authenticateRequest(opts.req); } catch { user = null; }
+  return { req: opts.req, res: opts.res, user };
 }

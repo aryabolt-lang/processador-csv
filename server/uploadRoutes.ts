@@ -1,12 +1,14 @@
 import { Router, Request, Response } from "express";
+import fetch from "node-fetch";
 import multer from "multer";
+import archiver from "archiver";
 import { parseFile, processData, detectColumns, ColMapping } from "./processador";
+import { storagePut } from "./storage";
 import { getDb } from "./db";
 import { processamentos, registrosProcessados } from "../drizzle/schema";
-import { eq, or, like, and, desc } from "drizzle-orm";
+import { eq, or, like, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { authMiddleware, AuthRequest } from "./_core/auth";
-import { stringify } from "csv-stringify/sync";
+import { syncContatos, buildContactsFromPhoneRecords } from "./syncContatos";
 
 const router = Router();
 
@@ -33,7 +35,7 @@ const upload = multer({
 
 // POST /api/upload/parse
 // Parse file and return headers + auto-detected column suggestions
-router.post("/parse", authMiddleware, upload.single("file"), async (req: AuthRequest, res: Response) => {
+router.post("/parse", upload.single("file"), async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Nenhum arquivo enviado." });
@@ -54,8 +56,8 @@ router.post("/parse", authMiddleware, upload.single("file"), async (req: AuthReq
 });
 
 // POST /api/upload/process
-// Full processing: parse + apply mapping + save to DB
-router.post("/process", authMiddleware, upload.single("file"), async (req: AuthRequest, res: Response) => {
+// Full processing: parse + apply mapping + generate 4 CSVs + save to S3 + record in DB
+router.post("/process", upload.single("file"), async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Nenhum arquivo enviado." });
@@ -71,6 +73,30 @@ router.post("/process", authMiddleware, upload.single("file"), async (req: AuthR
     const parsed = parseFile(req.file.buffer, req.file.mimetype, req.file.originalname);
     const result = processData(parsed.rows, mapping, parsed.headers);
 
+    const suffix = nanoid(8);
+
+    // Upload 4 CSVs to S3 sequentially with retry to avoid rate limiting
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const uploadWithRetry = async (key: string, data: Buffer, ct: string, retries = 3): Promise<{ key: string; url: string }> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          return await storagePut(key, data, ct);
+        } catch (e: any) {
+          if (i < retries - 1 && (e.message?.includes('Rate') || e.message?.includes('429'))) {
+            await sleep(1200 * (i + 1));
+            continue;
+          }
+          throw e;
+        }
+      }
+      throw new Error('Upload falhou após múltiplas tentativas');
+    };
+
+    const cpfLig = await uploadWithRetry(`processamentos/${suffix}/CPF_LIGACAO.csv`, result.cpfLigacaoCsv, "text/csv");
+    const cpfSms = await uploadWithRetry(`processamentos/${suffix}/CPF_SMS.csv`, result.cpfSmsCsv, "text/csv");
+    const cnpjLig = await uploadWithRetry(`processamentos/${suffix}/CNPJ_LIGACAO.csv`, result.cnpjLigacaoCsv, "text/csv");
+    const cnpjSms = await uploadWithRetry(`processamentos/${suffix}/CNPJ_SMS.csv`, result.cnpjSmsCsv, "text/csv");
+
     // Save to DB
     const db = await getDb();
     let processamentoId: number | null = null;
@@ -84,13 +110,14 @@ router.post("/process", authMiddleware, upload.single("file"), async (req: AuthR
         totalCnpj: result.totalCnpj,
         totalInvalidos: result.totalInvalidos,
         totalLinhasGeradas: result.totalLinhasGeradas,
+        cpfLigacaoUrl: cpfLig.url,
+        cpfSmsUrl: cpfSms.url,
+        cnpjLigacaoUrl: cnpjLig.url,
+        cnpjSmsUrl: cnpjSms.url,
         mapeamento: mapping as any,
         status: "concluido",
       });
-      
-      // Get the ID from the returned object
-      const insertedRecord = Array.isArray(inserted) ? inserted[0] : inserted;
-      processamentoId = (insertedRecord as any)?.id ?? null;
+      processamentoId = (inserted as any).insertId ?? null;
 
       // Save expanded records in batches of 500 for the search module
       if (processamentoId && result.expandedRecords.length > 0) {
@@ -112,8 +139,20 @@ router.post("/process", authMiddleware, upload.single("file"), async (req: AuthR
       }
     }
 
+    // ── Auto-sync contacts to internal agenda ──────────────────────────────
+    let contatosSyncResult = { total: 0, upserted: 0, skipped: 0 };
+    try {
+      const contactRecords = buildContactsFromPhoneRecords(result.expandedRecords);
+      contatosSyncResult = await syncContatos(contactRecords, req.file!.originalname);
+    } catch (syncErr) {
+      // Non-fatal: log but don't fail the whole request
+      console.error("[upload/process] syncContatos error:", syncErr);
+    }
+
     return res.json({
       id: processamentoId,
+      suffix,
+      contatosSynced: contatosSyncResult,
       metrics: {
         totalRegistros: result.totalRegistros,
         totalComContato: result.totalComContato,
@@ -122,6 +161,12 @@ router.post("/process", authMiddleware, upload.single("file"), async (req: AuthR
         totalCnpj: result.totalCnpj,
         totalInvalidos: result.totalInvalidos,
         totalLinhasGeradas: result.totalLinhasGeradas,
+      },
+      files: {
+        cpfLigacao: { url: cpfLig.url, key: cpfLig.key, name: "CPF_LIGACAO.csv" },
+        cpfSms: { url: cpfSms.url, key: cpfSms.key, name: "CPF_SMS.csv" },
+        cnpjLigacao: { url: cnpjLig.url, key: cnpjLig.key, name: "CNPJ_LIGACAO.csv" },
+        cnpjSms: { url: cnpjSms.url, key: cnpjSms.key, name: "CNPJ_SMS.csv" },
       },
       preview: {
         cpfLigacao: result.previewCpfLigacao,
@@ -136,58 +181,55 @@ router.post("/process", authMiddleware, upload.single("file"), async (req: AuthR
   }
 });
 
-// POST /api/upload/download-csv
-// Gerar e baixar CSV sob demanda
-router.post("/download-csv", authMiddleware, async (req: AuthRequest, res: Response) => {
+// POST /api/upload/download-zip
+// Generate a ZIP with 4 CSVs on the fly from S3 URLs
+router.post("/download-zip", async (req: Request, res: Response) => {
   try {
-    const { processamentoId, tipo } = req.body as {
-      processamentoId: number;
-      tipo: "cpf-ligacao" | "cpf-sms" | "cnpj-ligacao" | "cnpj-sms";
+    const { files } = req.body as {
+      files: {
+        cpfLigacao: { url: string; name: string };
+        cpfSms: { url: string; name: string };
+        cnpjLigacao: { url: string; name: string };
+        cnpjSms: { url: string; name: string };
+      };
     };
 
-    if (!processamentoId || !tipo) {
-      return res.status(400).json({ error: "processamentoId e tipo são obrigatórios." });
+    if (!files) {
+      return res.status(400).json({ error: "URLs dos arquivos não fornecidas." });
     }
 
-    const db = await getDb();
-    if (!db) return res.status(500).json({ error: "Banco de dados não disponível." });
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="processamento.zip"`);
 
-    // Buscar registros do processamento
-    const records = await db
-      .select()
-      .from(registrosProcessados)
-      .where(eq(registrosProcessados.processamentoId, processamentoId));
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.pipe(res);
 
-    // Filtrar por tipo
-    let filtered = records;
-    if (tipo === "cpf-ligacao") {
-      filtered = records.filter(r => r.tipoDoc === "CPF" && r.tipoDisparo === "ligacao");
-    } else if (tipo === "cpf-sms") {
-      filtered = records.filter(r => r.tipoDoc === "CPF" && r.tipoDisparo === "sms");
-    } else if (tipo === "cnpj-ligacao") {
-      filtered = records.filter(r => r.tipoDoc === "CNPJ" && r.tipoDisparo === "ligacao");
-    } else if (tipo === "cnpj-sms") {
-      filtered = records.filter(r => r.tipoDoc === "CNPJ" && r.tipoDisparo === "sms");
+    const fileList = [
+      { url: files.cpfLigacao.url, name: files.cpfLigacao.name },
+      { url: files.cpfSms.url, name: files.cpfSms.name },
+      { url: files.cnpjLigacao.url, name: files.cnpjLigacao.name },
+      { url: files.cnpjSms.url, name: files.cnpjSms.name },
+    ];
+
+    for (const f of fileList) {
+      const resp = await fetch(f.url);
+      if (resp.ok && resp.body) {
+        archive.append(resp.body as any, { name: f.name });
+      }
     }
 
-    // Gerar CSV
-    const csv = stringify(filtered, {
-      header: true,
-      columns: ["nome", "documento", "telefone", "protocolo"],
-    });
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${tipo}.csv"`);
-    return res.send(csv);
+    await archive.finalize();
   } catch (err: any) {
-    console.error("[upload/download-csv]", err);
-    return res.status(500).json({ error: err.message });
+    console.error("[upload/download-zip]", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: err.message || "Erro ao gerar ZIP." });
+    }
   }
 });
 
 // GET /api/upload/historico
 // Return last 20 processamentos
-router.get("/historico", authMiddleware, async (_req: AuthRequest, res: Response) => {
+router.get("/historico", async (_req: Request, res: Response) => {
   try {
     const db = await getDb();
     if (!db) return res.json([]);
@@ -195,10 +237,10 @@ router.get("/historico", authMiddleware, async (_req: AuthRequest, res: Response
     const rows = await db
       .select()
       .from(processamentos)
-      .orderBy(desc(processamentos.createdAt))
+      .orderBy(processamentos.createdAt)
       .limit(20);
 
-    return res.json(rows);
+    return res.json(rows.reverse());
   } catch (err: any) {
     console.error("[upload/historico]", err);
     return res.status(500).json({ error: err.message });
@@ -207,7 +249,7 @@ router.get("/historico", authMiddleware, async (_req: AuthRequest, res: Response
 
 // GET /api/upload/consulta/search?q=...
 // Intelligent search across all processed records
-router.get("/consulta/search", authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get("/consulta/search", async (req: Request, res: Response) => {
   try {
     const q = ((req.query.q as string) || "").trim();
     const tipoFilter = (req.query.tipo as string) || "";
@@ -270,7 +312,7 @@ router.get("/consulta/search", authMiddleware, async (req: AuthRequest, res: Res
 
 // GET /api/upload/consulta/pessoa/:documento
 // Get all records for a specific document (CPF or CNPJ)
-router.get("/consulta/pessoa/:documento", authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get("/consulta/pessoa/:documento", async (req: Request, res: Response) => {
   try {
     const doc = req.params.documento.replace(/\D/g, "");
     if (!doc) return res.status(400).json({ error: "Documento inválido" });
@@ -293,7 +335,7 @@ router.get("/consulta/pessoa/:documento", authMiddleware, async (req: AuthReques
 
 // GET /api/upload/consulta/export-csv?q=...
 // Export search results as CSV
-router.get("/consulta/export-csv", authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get("/consulta/export-csv", async (req: Request, res: Response) => {
   try {
     const q = ((req.query.q as string) || "").trim();
     if (!q) return res.status(400).json({ error: "Query obrigatória" });
@@ -314,14 +356,19 @@ router.get("/consulta/export-csv", authMiddleware, async (req: AuthRequest, res:
 
     const rows = await db.select().from(registrosProcessados).where(whereClause).limit(5000);
 
-    const csv = stringify(rows, {
-      header: true,
-      columns: ["id", "processamentoId", "nome", "documento", "tipoDoc", "telefone", "origemTelefone", "tipoDisparo", "protocolo", "nomeArquivo", "createdAt"],
-    });
+    const header = "ID;Processamento;Nome;Documento;Tipo;Telefone;Origem;Disparo;Protocolo;Arquivo;Data\r\n";
+    const lines = rows.map((r) =>
+      [
+        r.id, r.processamentoId, r.nome ?? "", r.documento ?? "", r.tipoDoc,
+        r.telefone ?? "", r.origemTelefone ?? "", r.tipoDisparo,
+        r.protocolo ?? "", r.nomeArquivo ?? "",
+        r.createdAt ? new Date(r.createdAt).toLocaleString("pt-BR") : "",
+      ].join(";")
+    );
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="consulta_${q.slice(0, 20)}.csv"`);
-    return res.send(csv);
+    res.setHeader("Content-Disposition", `attachment; filename="consulta_${q.slice(0,20)}.csv"`);
+    return res.send(header + lines.join("\r\n"));
   } catch (err: any) {
     console.error("[consulta/export-csv]", err);
     return res.status(500).json({ error: err.message });

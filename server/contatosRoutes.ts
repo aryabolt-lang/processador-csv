@@ -2,9 +2,8 @@ import { Router, Request, Response } from "express";
 import multer from "multer";
 import { parseFile } from "./processador";
 import { getDb } from "./db";
-import { contatos, contatosBase } from "../drizzle/schema";
-import { eq, or, like, and, desc } from "drizzle-orm";
-import { authMiddleware, AuthRequest } from "./_core/auth";
+import { contatos, contatosHistorico } from "../drizzle/schema";
+import { eq, or, like, and, sql, desc } from "drizzle-orm";
 
 const router = Router();
 
@@ -33,8 +32,19 @@ function classifyDoc(digits: string): "CPF" | "CNPJ" | "INVALIDO" {
   return "INVALIDO";
 }
 
+/**
+ * Try to auto-correct a document with wrong digit count.
+ * Returns { corrected, tipo } if fixable, or null if not.
+ *
+ * Common cases:
+ *  - 12 digits: likely CNPJ with 2 leading zeros missing → pad to 14
+ *  - 13 digits: likely CNPJ with 1 leading zero missing → pad to 14
+ *  - 10 digits: likely CPF with 1 leading zero missing → pad to 11
+ *  - 9 digits:  likely CPF with 2 leading zeros missing → pad to 11
+ */
 function tryCorrectDoc(digits: string): { corrected: string; tipo: "CPF" | "CNPJ"; method: string } | null {
   const len = digits.length;
+  // Pad to CNPJ (14 digits) if 12 or 13 digits
   if (len === 13) {
     const corrected = digits.padStart(14, "0");
     return { corrected, tipo: "CNPJ", method: "zero à esquerda adicionado (13→14 dígitos)" };
@@ -43,6 +53,7 @@ function tryCorrectDoc(digits: string): { corrected: string; tipo: "CPF" | "CNPJ
     const corrected = digits.padStart(14, "0");
     return { corrected, tipo: "CNPJ", method: "zeros à esquerda adicionados (12→14 dígitos)" };
   }
+  // Pad to CPF (11 digits) if 9 or 10 digits
   if (len === 10) {
     const corrected = digits.padStart(11, "0");
     return { corrected, tipo: "CPF", method: "zero à esquerda adicionado (10→11 dígitos)" };
@@ -78,6 +89,7 @@ function cleanEmail(v: string | undefined | null): string | null {
   return e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
 }
 
+/** Auto-detect column mapping from headers */
 function detectContatoColumns(headers: string[]): Record<string, string> {
   const map: Record<string, string> = {};
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -114,7 +126,7 @@ export interface ContatoMapping {
 }
 
 // ─── POST /api/contatos/parse ────────────────────────────────────────────────
-router.post("/parse", authMiddleware, upload.single("file"), async (req: AuthRequest, res: Response) => {
+router.post("/parse", upload.single("file"), async (req: Request, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado." });
 
@@ -140,6 +152,7 @@ router.get("/import-progress/:jobId", (req: Request, res: Response) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
+  // Send current state immediately
   const current = importProgressMap.get(jobId);
   if (current) {
     res.write(`data: ${JSON.stringify(current)}\n\n`);
@@ -149,6 +162,7 @@ router.get("/import-progress/:jobId", (req: Request, res: Response) => {
     }
   }
 
+  // Register SSE client
   if (!sseClientsMap.has(jobId)) sseClientsMap.set(jobId, new Set());
   sseClientsMap.get(jobId)!.add(res);
 
@@ -170,13 +184,14 @@ function broadcastProgress(jobId: string, progress: ImportProgress) {
         try { client.end(); } catch {}
       }
       clients.clear();
+      // Clean up after 60s
       setTimeout(() => importProgressMap.delete(jobId), 60_000);
     }
   }
 }
 
 // ─── POST /api/contatos/import ───────────────────────────────────────────────
-router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRequest, res: Response) => {
+router.post("/import", upload.single("file"), async (req: Request, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado." });
 
@@ -206,6 +221,7 @@ router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRe
     const erros: Array<{ linha: number; motivo: string }> = [];
     const correcoes: Array<{ linha: number; original: string; corrigido: string; metodo: string }> = [];
 
+    // Broadcast initial progress
     broadcastProgress(jobId, {
       status: "running",
       totalLidos: 0,
@@ -219,6 +235,7 @@ router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRe
     const get = (row: Record<string, string>, col?: string) =>
       col ? (row[col] ?? "") : "";
 
+    // ── Step 1: Parse and validate all rows ──────────────────────────────────
     type ValidRecord = {
       documento: string;
       tipoDoc: "CPF" | "CNPJ";
@@ -250,6 +267,7 @@ router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRe
         continue;
       }
 
+      // Try to auto-correct invalid documents
       if (tipoDoc === "INVALIDO") {
         const correction = tryCorrectDoc(docDigits);
         if (correction) {
@@ -264,7 +282,7 @@ router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRe
           totalCorrigidos++;
         } else {
           totalErros++;
-          erros.push({ linha, motivo: `Documento inválido: "${docRaw}" (${docDigits.length} dígitos)` });
+          erros.push({ linha, motivo: `Documento inválido: "${docRaw}" (${docDigits.length} dígitos — não foi possível corrigir)` });
           continue;
         }
       }
@@ -287,6 +305,7 @@ router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRe
       });
     }
 
+    // Broadcast after parsing
     broadcastProgress(jobId, {
       status: "running",
       totalLidos,
@@ -297,40 +316,53 @@ router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRe
       message: `${validRecords.length} registros válidos. Importando...`,
     });
 
+    // ── Step 2: Bulk upsert in batches of 1000 using Drizzle onDuplicateKeyUpdate ──
     const BATCH_SIZE = 1000;
 
     for (let b = 0; b < validRecords.length; b += BATCH_SIZE) {
       const batch = validRecords.slice(b, b + BATCH_SIZE);
 
       if (duplicateMode === "ignore") {
-        await db.insert(contatosBase).values(batch).onConflictDoNothing();
+        await db.insert(contatos).values(batch).onDuplicateKeyUpdate({
+          set: { documento: sql`documento` },
+        });
         totalImportados += batch.length;
       } else if (duplicateMode === "update") {
-        for (const record of batch) {
-          await db.insert(contatosBase).values(record).onConflictDoUpdate({
-            target: contatosBase.documento,
-            set: {
-              nomeRazaoSocial: record.nomeRazaoSocial,
-              celular1: record.celular1,
-              celular2: record.celular2,
-              celular3: record.celular3,
-              celular4: record.celular4,
-              email1: record.email1,
-              email2: record.email2,
-              email3: record.email3,
-              updatedAt: new Date(),
-            },
-          });
-        }
+        // Overwrite existing fields with new values (use COALESCE to keep if new is null)
+        await db.insert(contatos).values(batch).onDuplicateKeyUpdate({
+          set: {
+            tipoDoc: sql`VALUES(tipoDoc)`,
+            nomeRazaoSocial: sql`COALESCE(VALUES(nomeRazaoSocial), nomeRazaoSocial)`,
+            celular1: sql`COALESCE(VALUES(celular1), celular1)`,
+            celular2: sql`COALESCE(VALUES(celular2), celular2)`,
+            celular3: sql`COALESCE(VALUES(celular3), celular3)`,
+            celular4: sql`COALESCE(VALUES(celular4), celular4)`,
+            email1: sql`COALESCE(VALUES(email1), email1)`,
+            email2: sql`COALESCE(VALUES(email2), email2)`,
+            email3: sql`COALESCE(VALUES(email3), email3)`,
+            origemArquivo: sql`VALUES(origemArquivo)`,
+          },
+        });
         totalImportados += batch.length;
-        totalAtualizados += batch.length;
+        totalAtualizados += batch.length; // approximate
       } else {
-        for (const record of batch) {
-          await db.insert(contatosBase).values(record).onConflictDoNothing();
-        }
+        // merge: only fill empty fields, never overwrite existing data
+        await db.insert(contatos).values(batch).onDuplicateKeyUpdate({
+          set: {
+            nomeRazaoSocial: sql`COALESCE(nomeRazaoSocial, VALUES(nomeRazaoSocial))`,
+            celular1: sql`COALESCE(celular1, VALUES(celular1))`,
+            celular2: sql`COALESCE(celular2, VALUES(celular2))`,
+            celular3: sql`COALESCE(celular3, VALUES(celular3))`,
+            celular4: sql`COALESCE(celular4, VALUES(celular4))`,
+            email1: sql`COALESCE(email1, VALUES(email1))`,
+            email2: sql`COALESCE(email2, VALUES(email2))`,
+            email3: sql`COALESCE(email3, VALUES(email3))`,
+          },
+        });
         totalImportados += batch.length;
       }
 
+      // Broadcast progress after each batch
       broadcastProgress(jobId, {
         status: "running",
         totalLidos,
@@ -355,6 +387,7 @@ router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRe
       correcoes: correcoes.slice(0, 100),
     };
 
+    // Broadcast completion
     broadcastProgress(jobId, {
       status: "done",
       totalLidos,
@@ -373,42 +406,314 @@ router.post("/import", authMiddleware, upload.single("file"), async (req: AuthRe
   }
 });
 
-// ─── GET /api/contatos ─────────────────────────────────────
-router.get("/", authMiddleware, async (req: AuthRequest, res: Response) => {
+// ─── GET /api/contatos ───────────────────────────────────────────────────────
+router.get("/", async (req: Request, res: Response) => {
   try {
     const db = await getDb();
-    if (!db) return res.status(500).json({ error: "Banco de dados não disponível." });
+    if (!db) return res.json({ data: [], total: 0 });
 
-    const allContatos = await db.select().from(contatosBase).limit(1000);
-    return res.json(allContatos);
+    const q = ((req.query.q as string) || "").trim();
+    const tipo = (req.query.tipo as string) || "";
+    const sort = (req.query.sort as string) || "recent"; // "az" | "za" | "recent"
+    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || "50", 10)));
+    const offset = (page - 1) * limit;
+
+    let whereClause: any = undefined;
+
+    if (q) {
+      const qDigits = q.replace(/\D/g, "");
+      const conditions: any[] = [like(contatos.nomeRazaoSocial, `%${q}%`)];
+      if (qDigits.length >= 8) {
+        conditions.push(like(contatos.documento, `%${qDigits}%`));
+        conditions.push(like(contatos.celular1, `%${qDigits}%`));
+        conditions.push(like(contatos.celular2, `%${qDigits}%`));
+        conditions.push(like(contatos.celular3, `%${qDigits}%`));
+        conditions.push(like(contatos.celular4, `%${qDigits}%`));
+      } else if (qDigits.length > 0) {
+        conditions.push(like(contatos.documento, `%${qDigits}%`));
+      }
+      // email search
+      if (q.includes("@")) {
+        conditions.push(like(contatos.email1, `%${q}%`));
+        conditions.push(like(contatos.email2, `%${q}%`));
+        conditions.push(like(contatos.email3, `%${q}%`));
+      }
+      whereClause = or(...conditions);
+    }
+
+    if (tipo === "CPF") {
+      whereClause = whereClause
+        ? and(whereClause, eq(contatos.tipoDoc, "CPF"))
+        : eq(contatos.tipoDoc, "CPF");
+    } else if (tipo === "CNPJ") {
+      whereClause = whereClause
+        ? and(whereClause, eq(contatos.tipoDoc, "CNPJ"))
+        : eq(contatos.tipoDoc, "CNPJ");
+    }
+
+    const { asc } = await import("drizzle-orm");
+    const orderBy = sort === "az"
+      ? asc(contatos.nomeRazaoSocial)
+      : sort === "za"
+        ? desc(contatos.nomeRazaoSocial)
+        : desc(contatos.updatedAt);
+
+    const [rows, countRows] = await Promise.all([
+      whereClause
+        ? db.select().from(contatos).where(whereClause).orderBy(orderBy).limit(limit).offset(offset)
+        : db.select().from(contatos).orderBy(orderBy).limit(limit).offset(offset),
+      whereClause
+        ? db.select({ count: sql<number>`count(*)` }).from(contatos).where(whereClause)
+        : db.select({ count: sql<number>`count(*)` }).from(contatos),
+    ]);
+
+    const total = Number(countRows[0]?.count ?? 0);
+
+    return res.json({ data: rows, total, page, limit, pages: Math.ceil(total / limit) });
+  } catch (err: any) {
+    console.error("[contatos/list]", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/contatos/:documento ────────────────────────────────────────────
+router.get("/:documento", async (req: Request, res: Response) => {
+  try {
+    const doc = req.params.documento.replace(/\D/g, "");
+    if (!doc) return res.status(400).json({ error: "Documento inválido" });
+
+    const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Banco não disponível" });
+
+    const rows = await db
+      .select()
+      .from(contatos)
+      .where(eq(contatos.documento, doc))
+      .limit(1);
+
+    if (rows.length === 0) return res.status(404).json({ error: "Contato não encontrado" });
+    return res.json(rows[0]);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-// ─── GET /api/contatos/search ──────────────────────────────────
-router.get("/search", authMiddleware, async (req: AuthRequest, res: Response) => {
+// ─── DELETE /api/contatos/:documento ─────────────────────────────────────────
+router.delete("/:documento", async (req: Request, res: Response) => {
   try {
-    const { q } = req.query;
-    if (!q || typeof q !== "string") {
-      return res.status(400).json({ error: "Query parameter 'q' é obrigatório." });
-    }
+    const doc = req.params.documento.replace(/\D/g, "");
+    if (!doc) return res.status(400).json({ error: "Documento inválido" });
 
     const db = await getDb();
-    if (!db) return res.status(500).json({ error: "Banco de dados não disponível." });
+    if (!db) return res.status(500).json({ error: "Banco não disponível" });
 
-    const results = await db
+    await db.delete(contatos).where(eq(contatos.documento, doc));
+    await db.delete(contatosHistorico).where(eq(contatosHistorico.documento, doc));
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/contatos (cadastro manual) ────────────────────────────────────
+router.post("/", async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Banco não disponível" });
+
+    const body = req.body;
+    const docDigits = cleanDigits(body.documento);
+    if (!docDigits) return res.status(400).json({ error: "CPF/CNPJ é obrigatório" });
+
+    let tipoDoc = classifyDoc(docDigits);
+    if (tipoDoc === "INVALIDO") {
+      const correction = tryCorrectDoc(docDigits);
+      if (correction) {
+        tipoDoc = correction.tipo;
+      } else {
+        return res.status(400).json({ error: `Documento inválido: ${docDigits.length} dígitos. CPF deve ter 11 e CNPJ 14.` });
+      }
+    }
+
+    const nome = (body.nomeRazaoSocial || "").trim();
+    if (!nome) return res.status(400).json({ error: "Nome / Razão Social é obrigatório" });
+
+    const celular1 = cleanPhone(body.celular1);
+    const celular2 = cleanPhone(body.celular2);
+    const celular3 = cleanPhone(body.celular3);
+    const celular4 = cleanPhone(body.celular4);
+    const email1 = cleanEmail(body.email1);
+    const email2 = cleanEmail(body.email2);
+    const email3 = cleanEmail(body.email3);
+    const telefonePrincipal = parseInt(body.telefonePrincipal || "0", 10);
+    const emailPrincipal = parseInt(body.emailPrincipal || "0", 10);
+
+    // Check if already exists
+    const existing = await db.select({ id: contatos.id }).from(contatos).where(eq(contatos.documento, docDigits)).limit(1);
+    if (existing.length > 0) {
+      return res.status(409).json({ error: "Já existe um contato com este CPF/CNPJ. Use a função de edição para atualizar." });
+    }
+
+    await db.insert(contatos).values({
+      documento: docDigits,
+      tipoDoc,
+      nomeRazaoSocial: nome,
+      celular1, celular2, celular3, celular4,
+      email1, email2, email3,
+      origem: "manual",
+      telefonePrincipal,
+      emailPrincipal,
+      ultimaEdicao: new Date(),
+    });
+
+    // Register history
+    await db.insert(contatosHistorico).values({
+      documento: docDigits,
+      acao: "criado",
+      descricao: "Contato criado manualmente",
+      camposAlterados: null,
+    });
+
+    const created = await db.select().from(contatos).where(eq(contatos.documento, docDigits)).limit(1);
+    return res.status(201).json(created[0]);
+  } catch (err: any) {
+    console.error("[contatos/create]", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /api/contatos/:documento (editar) ───────────────────────────────────
+router.put("/:documento", async (req: Request, res: Response) => {
+  try {
+    const doc = req.params.documento.replace(/\D/g, "");
+    if (!doc) return res.status(400).json({ error: "Documento inválido" });
+
+    const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Banco não disponível" });
+
+    const existing = await db.select().from(contatos).where(eq(contatos.documento, doc)).limit(1);
+    if (existing.length === 0) return res.status(404).json({ error: "Contato não encontrado" });
+
+    const old = existing[0];
+    const body = req.body;
+
+    const nome = (body.nomeRazaoSocial || "").trim() || old.nomeRazaoSocial;
+    const celular1 = cleanPhone(body.celular1) ?? old.celular1;
+    const celular2 = cleanPhone(body.celular2) ?? old.celular2;
+    const celular3 = cleanPhone(body.celular3) ?? old.celular3;
+    const celular4 = cleanPhone(body.celular4) ?? old.celular4;
+    const email1 = cleanEmail(body.email1) ?? old.email1;
+    const email2 = cleanEmail(body.email2) ?? old.email2;
+    const email3 = cleanEmail(body.email3) ?? old.email3;
+
+    // Track changed fields for history
+    const camposAlterados: Array<{ campo: string; de: string | null; para: string | null }> = [];
+    const trackChange = (campo: string, de: string | null | undefined, para: string | null | undefined) => {
+      const deStr = de ?? null;
+      const paraStr = para ?? null;
+      if (deStr !== paraStr) camposAlterados.push({ campo, de: deStr, para: paraStr });
+    };
+    trackChange("Nome / Razão Social", old.nomeRazaoSocial, nome);
+    trackChange("Celular 01", old.celular1, celular1);
+    trackChange("Celular 02", old.celular2, celular2);
+    trackChange("Celular 03", old.celular3, celular3);
+    trackChange("Celular 04", old.celular4, celular4);
+    trackChange("E-mail 01", old.email1, email1);
+    trackChange("E-mail 02", old.email2, email2);
+    trackChange("E-mail 03", old.email3, email3);
+
+    await db.update(contatos).set({
+      nomeRazaoSocial: nome,
+      celular1, celular2, celular3, celular4,
+      email1, email2, email3,
+      ultimaEdicao: new Date(),
+    }).where(eq(contatos.documento, doc));
+
+    if (camposAlterados.length > 0) {
+      await db.insert(contatosHistorico).values({
+        documento: doc,
+        acao: "editado",
+        descricao: `${camposAlterados.length} campo(s) alterado(s)`,
+        camposAlterados,
+      });
+    }
+
+    const updated = await db.select().from(contatos).where(eq(contatos.documento, doc)).limit(1);
+    return res.json(updated[0]);
+  } catch (err: any) {
+    console.error("[contatos/edit]", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/contatos/:documento/favoritar ─────────────────────────────────
+router.post("/:documento/favoritar", async (req: Request, res: Response) => {
+  try {
+    const doc = req.params.documento.replace(/\D/g, "");
+    if (!doc) return res.status(400).json({ error: "Documento inválido" });
+
+    const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Banco não disponível" });
+
+    const existing = await db.select().from(contatos).where(eq(contatos.documento, doc)).limit(1);
+    if (existing.length === 0) return res.status(404).json({ error: "Contato não encontrado" });
+
+    const old = existing[0];
+    const tipo = req.body.tipo as "telefone" | "email"; // "telefone" or "email"
+    const valor = parseInt(req.body.valor || "0", 10); // 1-4 for telefone, 1-3 for email, 0 to clear
+
+    const updateData: Partial<typeof contatos.$inferInsert> = { ultimaEdicao: new Date() };
+    let descricao = "";
+
+    if (tipo === "telefone") {
+      updateData.telefonePrincipal = valor;
+      descricao = valor > 0 ? `Celular 0${valor} marcado como principal` : "Telefone principal removido";
+    } else if (tipo === "email") {
+      updateData.emailPrincipal = valor;
+      descricao = valor > 0 ? `E-mail 0${valor} marcado como principal` : "E-mail principal removido";
+    } else {
+      return res.status(400).json({ error: "tipo deve ser 'telefone' ou 'email'" });
+    }
+
+    await db.update(contatos).set(updateData).where(eq(contatos.documento, doc));
+
+    // Only log if changed
+    const oldVal = tipo === "telefone" ? old.telefonePrincipal : old.emailPrincipal;
+    if (oldVal !== valor) {
+      await db.insert(contatosHistorico).values({
+        documento: doc,
+        acao: "favorito_alterado",
+        descricao,
+        camposAlterados: null,
+      });
+    }
+
+    const updated = await db.select().from(contatos).where(eq(contatos.documento, doc)).limit(1);
+    return res.json(updated[0]);
+  } catch (err: any) {
+    console.error("[contatos/favoritar]", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/contatos/:documento/historico ──────────────────────────────────
+router.get("/:documento/historico", async (req: Request, res: Response) => {
+  try {
+    const doc = req.params.documento.replace(/\D/g, "");
+    if (!doc) return res.status(400).json({ error: "Documento inválido" });
+
+    const db = await getDb();
+    if (!db) return res.status(500).json({ error: "Banco não disponível" });
+
+    const rows = await db
       .select()
-      .from(contatosBase)
-      .where(
-        or(
-          like(contatosBase.documento, `%${q}%`),
-          like(contatosBase.nomeRazaoSocial, `%${q}%`)
-        )
-      )
-      .limit(50);
+      .from(contatosHistorico)
+      .where(eq(contatosHistorico.documento, doc))
+      .orderBy(desc(contatosHistorico.criadoEm))
+      .limit(100);
 
-    return res.json(results);
+    return res.json(rows);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

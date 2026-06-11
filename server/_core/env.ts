@@ -1,5 +1,5 @@
 export const ENV = {
-  jwtSecret: process.env.JWT_SECRET ?? "seu-segredo-super-secreto-mude-em-producao",
+  jwtSecret: process.env.JWT_SECRET ?? "mude-em-producao",
   databaseUrl: process.env.DATABASE_URL ?? "",
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",

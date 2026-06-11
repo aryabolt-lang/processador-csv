@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
-import { Upload, FileSpreadsheet, Settings2, Zap, Download, History, ChevronRight, X, AlertCircle, CheckCircle2, Search, Users } from "lucide-react";
+import { Upload, FileSpreadsheet, Settings2, Zap, Download, ChevronRight, X, AlertCircle, CheckCircle2 } from "lucide-react";
+import GlobalNav, { PageLayout } from "@/components/GlobalNav";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -151,48 +152,14 @@ export default function Home() {
   const currentStepIdx = STEPS.findIndex((s) => s.id === step);
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border/60 bg-card/60 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container flex items-center justify-between h-16">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-200 to-blue-200 border border-pink-300/50 flex items-center justify-center shadow-sm">
-              <span className="text-lg font-bold text-pink-500 leading-none">H<span className="text-red-400">♥</span></span>
-            </div>
-            <div>
-              <span className="font-semibold text-foreground tracking-tight">Processador</span>
-              <span className="font-light text-muted-foreground ml-1.5 text-sm">CSV Inteligente</span>
-            </div>
-          </div>
-          <nav className="flex items-center gap-2">
-            <Link href="/contatos">
-              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground gap-2">
-                <Users className="w-4 h-4" />
-                Contatos
-              </Button>
-            </Link>
-            <Link href="/consulta">
-              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground gap-2">
-                <Search className="w-4 h-4" />
-                Consulta
-              </Button>
-            </Link>
-            <Link href="/historico">
-              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground gap-2">
-                <History className="w-4 h-4" />
-                Histórico
-              </Button>
-            </Link>
-            {step !== "upload" && (
-              <Button variant="ghost" size="sm" onClick={handleReset} className="text-muted-foreground hover:text-foreground gap-2">
-                <X className="w-4 h-4" />
-                Novo
-              </Button>
-            )}
-          </nav>
-        </div>
-      </header>
-
+    <>
+      <GlobalNav actions={step !== "upload" ? (
+        <Button variant="ghost" size="sm" onClick={handleReset} className="text-muted-foreground hover:text-foreground gap-2">
+          <X className="w-4 h-4" />
+          Novo
+        </Button>
+      ) : undefined} />
+      <PageLayout>
       <main className="container py-10">
         {/* Step indicator */}
         <div className="flex items-center justify-center gap-0 mb-12">
@@ -320,6 +287,7 @@ export default function Home() {
           <ProcessingResult result={result} onReset={handleReset} />
         )}
       </main>
-    </div>
+      </PageLayout>
+    </>
   );
 }

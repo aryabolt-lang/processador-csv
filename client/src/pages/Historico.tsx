@@ -3,7 +3,8 @@ import { Link } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, FileSpreadsheet, Clock, Users, TrendingUp, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { FileSpreadsheet, Clock, Users, TrendingUp, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import GlobalNav, { PageLayout } from "@/components/GlobalNav";
 
 interface Processamento {
   id: number;
@@ -44,24 +45,9 @@ export default function Historico() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border/50 bg-card/30 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container flex items-center h-16 gap-4">
-          <Link href="/">
-            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-              <ArrowLeft className="w-4 h-4" />
-              Voltar
-            </Button>
-          </Link>
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
-              <FileSpreadsheet className="w-4 h-4 text-primary" />
-            </div>
-            <span className="font-semibold text-foreground tracking-tight">Histórico de Processamentos</span>
-          </div>
-        </div>
-      </header>
-
+    <>
+      <GlobalNav />
+      <PageLayout>
       <main className="container py-10">
         <div className="max-w-4xl mx-auto">
           <div className="mb-8">
@@ -158,6 +144,7 @@ export default function Historico() {
           </div>
         </div>
       </main>
-    </div>
+      </PageLayout>
+    </>
   );
 }

@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { Eye, EyeOff, FileSpreadsheet, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -18,18 +18,11 @@ export default function Login() {
   const utils = trpc.useUtils();
 
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async () => {
-      await utils.auth.me.invalidate();
-      navigate("/");
-    },
+    onSuccess: async () => { await utils.auth.me.invalidate(); navigate("/"); },
     onError: (err) => toast.error(err.message),
   });
-
   const registerMutation = trpc.auth.register.useMutation({
-    onSuccess: async () => {
-      await utils.auth.me.invalidate();
-      navigate("/");
-    },
+    onSuccess: async () => { await utils.auth.me.invalidate(); navigate("/"); },
     onError: (err) => toast.error(err.message),
   });
 
@@ -44,10 +37,8 @@ export default function Login() {
     }
   }
 
-  function set(field: keyof typeof form) {
-    return (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
-  }
+  const set = (field: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => setForm(p => ({ ...p, [field]: e.target.value }));
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -64,13 +55,9 @@ export default function Login() {
 
         <Card className="border-border shadow-lg">
           <CardHeader>
-            <CardTitle className="text-lg">
-              {mode === "login" ? "Entrar" : "Criar conta"}
-            </CardTitle>
+            <CardTitle className="text-lg">{mode === "login" ? "Entrar" : "Criar conta"}</CardTitle>
             <CardDescription>
-              {mode === "login"
-                ? "Acesse com seu e-mail e senha"
-                : "Preencha os dados para criar sua conta"}
+              {mode === "login" ? "Acesse com seu e-mail e senha" : "Preencha os dados para criar sua conta"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -82,47 +69,31 @@ export default function Login() {
             )}
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>
-              <Input id="email" type="email" placeholder="voce@email.com" value={form.email} onChange={set("email")} disabled={isPending} onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+              <Input id="email" type="email" placeholder="voce@email.com" value={form.email} onChange={set("email")} disabled={isPending} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Senha</Label>
               <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
+                <Input id="password" type={showPassword ? "text" : "password"}
                   placeholder={mode === "register" ? "Mínimo 6 caracteres" : "Sua senha"}
-                  value={form.password}
-                  onChange={set("password")}
-                  disabled={isPending}
-                  className="pr-10"
-                  onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                />
-                <button
-                  type="button"
+                  value={form.password} onChange={set("password")} disabled={isPending}
+                  className="pr-10" onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+                <button type="button" tabIndex={-1}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowPassword((v) => !v)}
-                  tabIndex={-1}
-                >
+                  onClick={() => setShowPassword(v => !v)}>
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
             <Button className="w-full" onClick={handleSubmit} disabled={isPending}>
-              {isPending ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Aguarde...</>
-              ) : mode === "login" ? "Entrar" : "Criar conta"}
+              {isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Aguarde...</>
+                : mode === "login" ? "Entrar" : "Criar conta"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               {mode === "login" ? (
-                <>Não tem conta?{" "}
-                  <button className="text-primary hover:underline font-medium" onClick={() => setMode("register")}>
-                    Criar agora
-                  </button></>
+                <>Não tem conta?{" "}<button className="text-primary hover:underline font-medium" onClick={() => setMode("register")}>Criar agora</button></>
               ) : (
-                <>Já tem conta?{" "}
-                  <button className="text-primary hover:underline font-medium" onClick={() => setMode("login")}>
-                    Entrar
-                  </button></>
+                <>Já tem conta?{" "}<button className="text-primary hover:underline font-medium" onClick={() => setMode("login")}>Entrar</button></>
               )}
             </p>
           </CardContent>

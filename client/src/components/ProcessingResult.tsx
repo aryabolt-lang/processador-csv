@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Download, Package, RotateCcw, Phone, MessageSquare, Users, UserX, FileText, TrendingUp } from "lucide-react";
+import { Download, Package, RotateCcw, Phone, MessageSquare, Users, UserX, FileText, TrendingUp, MessageCircle, BookUser } from "lucide-react";
 import { toast } from "sonner";
+import WhatsappExportModal from "@/components/WhatsappExportModal";
 
 interface FileInfo {
   url: string;
@@ -15,6 +16,7 @@ interface FileInfo {
 interface ProcessResponse {
   id: number | null;
   suffix: string;
+  contatosSynced?: { total: number; upserted: number; skipped: number };
   metrics: {
     totalRegistros: number;
     totalComContato: number;
@@ -146,7 +148,8 @@ function PreviewTable({ rows }: { rows: Record<string, string>[] }) {
 
 export default function ProcessingResult({ result, onReset }: Props) {
   const [isZipping, setIsZipping] = useState(false);
-  const { metrics, files, preview } = result;
+  const [showWhatsapp, setShowWhatsapp] = useState(false);
+  const { metrics, files, preview, contatosSynced } = result;
 
   const handleDownloadZip = async () => {
     setIsZipping(true);
@@ -200,12 +203,41 @@ export default function ProcessingResult({ result, onReset }: Props) {
             )}
             Baixar tudo (ZIP)
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowWhatsapp(true)}
+            className="gap-2 border-green-500/40 text-green-600 hover:bg-green-500/10"
+          >
+            <MessageCircle className="w-4 h-4" />
+            Exportar WhatsApp
+          </Button>
           <Button variant="ghost" size="sm" onClick={onReset} className="gap-2 text-muted-foreground hover:text-foreground">
             <RotateCcw className="w-4 h-4" />
             Nova planilha
           </Button>
         </div>
       </div>
+      {showWhatsapp && (
+        <WhatsappExportModal
+          open={showWhatsapp}
+          onClose={() => setShowWhatsapp(false)}
+          files={{
+            cpfSms: { url: files.cpfSms.url, name: files.cpfSms.name },
+            cnpjSms: { url: files.cnpjSms.url, name: files.cnpjSms.name },
+          }}
+        />
+      )}
+
+      {/* Contacts sync banner */}
+      {contatosSynced && contatosSynced.upserted > 0 && (
+        <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 mb-6">
+          <BookUser className="w-5 h-5 text-emerald-400 shrink-0" />
+          <p className="text-sm text-emerald-300">
+            <span className="font-semibold">{contatosSynced.upserted.toLocaleString("pt-BR")} contatos</span> foram adicionados ou atualizados automaticamente na agenda interna.
+          </p>
+        </div>
+      )}
 
       {/* Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">

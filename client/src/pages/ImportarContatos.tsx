@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import GlobalNav, { PageLayout } from "@/components/GlobalNav";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 
@@ -187,21 +188,9 @@ export default function ImportarContatos() {
     : progress?.status === "done" ? 100 : 0;
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border/50 bg-card/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-4">
-          <Link href="/contatos">
-            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-              <ArrowLeft className="w-4 h-4" />
-              Contatos
-            </Button>
-          </Link>
-          <div className="h-4 w-px bg-border" />
-          <h1 className="text-lg font-semibold">Importar Contatos</h1>
-        </div>
-      </header>
-
+    <>
+      <GlobalNav />
+      <PageLayout>
       <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Steps indicator */}
         <div className="flex items-center gap-2 mb-8 text-sm">
@@ -562,6 +551,7 @@ export default function ImportarContatos() {
           </div>
         )}
       </div>
-    </div>
+      </PageLayout>
+    </>
   );
 }

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import GlobalNav, { PageLayout } from "@/components/GlobalNav";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Contato {
@@ -127,8 +128,10 @@ export default function BaseContatos() {
   // Detail
   const [selected, setSelected] = useState<Contato | null>(null);
   const [historico, setHistorico] = useState<HistoricoEntry[]>([]);
-  const [detailTab, setDetailTab] = useState<"info" | "historico">("info");
+  const [detailTab, setDetailTab] = useState<"info" | "historico" | "protocolos">("info");
   const [loadingHistorico, setLoadingHistorico] = useState(false);
+  const [protocolosContato, setProtocolosContato] = useState<any[]>([]);
+  const [loadingProtocolos, setLoadingProtocolos] = useState(false);
 
   // Form
   const [showForm, setShowForm] = useState(false);
@@ -175,10 +178,21 @@ export default function BaseContatos() {
     finally { setLoadingHistorico(false); }
   };
 
+  const fetchProtocolosContato = async (doc: string) => {
+    setLoadingProtocolos(true);
+    try {
+      const res = await fetch(`/api/protocolos/por-documento/${doc}`);
+      const data = await res.json();
+      setProtocolosContato(Array.isArray(data) ? data : []);
+    } catch { setProtocolosContato([]); }
+    finally { setLoadingProtocolos(false); }
+  };
+
   const selectContato = (c: Contato) => {
     setSelected(c);
     setDetailTab("info");
     fetchHistorico(c.documento);
+    fetchProtocolosContato(c.documento);
   };
 
   // ── Favoritar ──────────────────────────────────────────────────────────────
@@ -261,38 +275,25 @@ export default function BaseContatos() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-blue-50">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-sm border-b border-pink-100 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate("/")} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-400 to-blue-400 flex items-center justify-center text-white font-bold text-sm">H♥</div>
-              <span className="font-semibold text-gray-700 hidden sm:block">Processador CSV</span>
-            </button>
-            <span className="text-gray-300">/</span>
-            <span className="font-semibold text-gray-800 flex items-center gap-1.5">
-              <Users size={16} className="text-pink-400" /> Base de Contatos
-            </span>
-            {total > 0 && (
-              <Badge variant="secondary" className="text-xs bg-pink-100 text-pink-600 border-0">
-                {total.toLocaleString("pt-BR")} registros
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => navigate("/contatos/importar")}
-              className="border-pink-200 text-pink-600 hover:bg-pink-50 text-xs gap-1">
-              <Upload size={13} /> Importar
-            </Button>
-            <Button size="sm" onClick={openCreate}
-              className="bg-gradient-to-r from-pink-400 to-pink-500 hover:from-pink-500 hover:to-pink-600 text-white text-xs gap-1">
-              <Plus size={14} /> Novo Contato
-            </Button>
-          </div>
+    <>
+      <GlobalNav actions={
+        <div className="flex items-center gap-2">
+          {total > 0 && (
+            <Badge variant="secondary" className="text-xs bg-pink-100 text-pink-600 border-0">
+              {total.toLocaleString("pt-BR")} registros
+            </Badge>
+          )}
+          <Button size="sm" variant="outline" onClick={() => navigate("/contatos/importar")}
+            className="border-pink-200 text-pink-600 hover:bg-pink-50 text-xs gap-1">
+            <Upload size={13} /> Importar
+          </Button>
+          <Button size="sm" onClick={openCreate}
+            className="bg-gradient-to-r from-pink-400 to-pink-500 hover:from-pink-500 hover:to-pink-600 text-white text-xs gap-1">
+            <Plus size={14} /> Novo Contato
+          </Button>
         </div>
-      </header>
-
+      } />
+      <PageLayout className="bg-gradient-to-br from-pink-50 via-white to-blue-50">
       <div className="max-w-7xl mx-auto px-4 py-6 flex gap-4">
         {/* ── List ── */}
         <div className={`flex-1 min-w-0 ${selected ? "hidden lg:flex lg:flex-col lg:w-[420px] lg:flex-none" : "flex flex-col"}`}>
@@ -461,12 +462,12 @@ export default function BaseContatos() {
                   </div>
                 </div>
                 <div className="flex gap-1 mt-3">
-                  {(["info", "historico"] as const).map(tab => (
+                  {(["info", "historico", "protocolos"] as const).map(tab => (
                     <button key={tab} onClick={() => setDetailTab(tab)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                         detailTab === tab ? "bg-white text-pink-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
                       }`}>
-                      {tab === "info" ? "Informações" : "Histórico"}
+                      {tab === "info" ? "Informações" : tab === "historico" ? "Histórico" : `Protestos${protocolosContato.length > 0 ? ` (${protocolosContato.length})` : ""}`}
                     </button>
                   ))}
                 </div>
@@ -574,6 +575,41 @@ export default function BaseContatos() {
                         )}
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {detailTab === "protocolos" && (
+                  <div>
+                    {loadingProtocolos ? (
+                      <div className="text-center py-8 text-gray-400">
+                        <div className="w-6 h-6 border-2 border-pink-300 border-t-pink-500 rounded-full animate-spin mx-auto mb-2" />
+                        Carregando protestos...
+                      </div>
+                    ) : protocolosContato.length === 0 ? (
+                      <div className="text-center py-8 text-gray-400">
+                        <div className="text-3xl mb-2">📋</div>
+                        <p className="text-sm">Nenhum protesto encontrado para este CPF/CNPJ</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-gray-500 mb-3">{protocolosContato.length} protesto(s) encontrado(s)</p>
+                        {protocolosContato.map((p: any) => (
+                          <div key={p.id} className="rounded-lg border border-gray-100 p-3 space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-mono font-medium text-gray-700">{p.protocolo}</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                p.statusIntimacao === "intimado" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                              }`}>
+                                {p.statusIntimacao === "intimado" ? "Intimado" : "Pendente"}
+                              </span>
+                            </div>
+                            {p.numeroTitulo && <p className="text-xs text-gray-500">Título: <span className="font-mono">{p.numeroTitulo}</span></p>}
+                            {p.credor && <p className="text-xs text-gray-500">Credor: {p.credor}</p>}
+                            {p.valorProtesto && <p className="text-xs text-gray-500">Valor: {p.valorProtesto}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -729,6 +765,7 @@ export default function BaseContatos() {
           </div>
         </div>
       )}
-    </div>
+      </PageLayout>
+    </>
   );
 }

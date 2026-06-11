@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import GlobalNav, { PageLayout } from "@/components/GlobalNav";
 
 interface RegistroProcessado {
   id: number;
@@ -173,34 +174,14 @@ export default function Consulta() {
     : 0;
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      {/* Header */}
-      <header className="border-b border-pink-100 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/">
-              <Button variant="ghost" size="sm" className="gap-2 text-pink-400 hover:text-pink-600">
-                <ArrowLeft className="w-4 h-4" />
-                Voltar
-              </Button>
-            </Link>
-            <div className="w-px h-5 bg-pink-100" />
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-pink-300 to-blue-300 flex items-center justify-center text-white font-bold text-xs">
-                H♥
-              </div>
-              <span className="font-semibold text-gray-800">Consulta Inteligente</span>
-            </div>
-          </div>
-          {searchResult && (
-            <Button variant="outline" size="sm" onClick={exportCsv} className="gap-2 border-pink-200 text-pink-600 hover:bg-pink-50">
-              <Download className="w-4 h-4" />
-              Exportar CSV
-            </Button>
-          )}
-        </div>
-      </header>
-
+    <>
+      <GlobalNav actions={searchResult ? (
+        <Button variant="outline" size="sm" onClick={exportCsv} className="gap-2 border-pink-200 text-pink-600 hover:bg-pink-50">
+          <Download className="w-4 h-4" />
+          Exportar CSV
+        </Button>
+      ) : undefined} />
+      <PageLayout>
       <main className="max-w-6xl mx-auto px-4 py-8">
         {/* Search hero */}
         <div className="text-center mb-8">
@@ -589,6 +570,7 @@ export default function Consulta() {
           </div>
         )}
       </main>
-    </div>
+      </PageLayout>
+    </>
   );
 }

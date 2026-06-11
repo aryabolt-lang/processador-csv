@@ -1,0 +1,1 @@
+ALTER TABLE `protocolos` ADD `canalIntimacao` varchar(100);

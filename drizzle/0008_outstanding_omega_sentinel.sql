@@ -1,0 +1,1 @@
+ALTER TABLE `protocolos` DROP INDEX `protocolos_protocolo_unique`;
