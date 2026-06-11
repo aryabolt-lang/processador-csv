@@ -1,0 +1,21 @@
+CREATE TABLE `processamentos` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`nomeArquivo` varchar(255) NOT NULL,
+	`totalRegistros` int NOT NULL DEFAULT 0,
+	`totalComContato` int NOT NULL DEFAULT 0,
+	`totalSemContato` int NOT NULL DEFAULT 0,
+	`totalCpf` int NOT NULL DEFAULT 0,
+	`totalCnpj` int NOT NULL DEFAULT 0,
+	`totalInvalidos` int NOT NULL DEFAULT 0,
+	`totalLinhasGeradas` int NOT NULL DEFAULT 0,
+	`cpfLigacaoUrl` text,
+	`cpfSmsUrl` text,
+	`cnpjLigacaoUrl` text,
+	`cnpjSmsUrl` text,
+	`zipUrl` text,
+	`mapeamento` json,
+	`status` enum('processando','concluido','erro') NOT NULL DEFAULT 'processando',
+	`erroMsg` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `processamentos_id` PRIMARY KEY(`id`)
+);

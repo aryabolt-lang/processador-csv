@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1774992086534,
+      "tag": "0000_sudden_phantom_reporter",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1774992227063,
+      "tag": "0001_outgoing_dragon_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1775065393640,
+      "tag": "0002_gigantic_stellaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1775852870738,
+      "tag": "0003_old_spiral",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1775856158044,
+      "tag": "0004_broad_dazzler",
+      "breakpoints": true
+    }
+  ]
+}
