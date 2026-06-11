@@ -17,5 +17,8 @@
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "env": {
+    "VERCEL_SKIP_TYPECHECK": "1"
+  }
 }

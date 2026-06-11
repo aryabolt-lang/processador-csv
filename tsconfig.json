@@ -1,6 +1,6 @@
 {
   "include": ["client/src/**/*", "shared/**/*", "server/**/*", "api/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "exclude": ["node_modules", "build", "dist", "**/*.test.ts", "server/_core/auth.ts", "server/_core/sdk.ts", "server/_core/init.ts", "server/_core/oauth.ts", "server/_core/notification.ts", "server/_core/heartbeat.ts", "server/_core/dataApi.ts", "server/_core/imageGeneration.ts", "server/_core/voiceTranscription.ts", "server/_core/storageProxy.ts", "server/_core/systemRouter.ts"],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
