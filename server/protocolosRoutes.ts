@@ -186,7 +186,7 @@ router.post("/import", upload.single("file"), async (req, res) => {
         nomeArquivo,
         dataProtocolo: dataProtocoloParsed as any,
         situacaoTitulo: situacaoRaw || null,
-        tituloEncerrado: encerrado ? 1 : 0,
+        tituloEncerrado: encerrado ? true : false,
         statusIntimacao: isEdital ? "intimado" : "pendente",
         canalIntimacao: isEdital ? "Edital" : null,
         intimadoEm: isEdital ? new Date() : null,
@@ -304,7 +304,7 @@ router.post("/enriquecer", upload.single("file"), async (req, res) => {
       valorProtesto?: string;
       dataProtocolo?: string;
       situacaoTitulo?: string;
-      tituloEncerrado?: number;
+      tituloEncerrado?: boolean;
       statusIntimacao?: string;
       canalIntimacao?: string;
       intimadoEm?: Date;
@@ -337,7 +337,7 @@ router.post("/enriquecer", upload.single("file"), async (req, res) => {
       if (dataProtocoloParsed) entry.dataProtocolo = dataProtocoloParsed;
       if (situacaoRaw) {
         entry.situacaoTitulo = situacaoRaw;
-        entry.tituloEncerrado = encerrado ? 1 : 0;
+        entry.tituloEncerrado = encerrado ? true : false;
         if (isEdital) {
           entry.statusIntimacao = "intimado";
           entry.canalIntimacao = "Edital";
@@ -512,12 +512,12 @@ router.get("/", async (req, res) => {
 
     if (status === "pendente" || status === "intimado") {
       conditions.push(eq(protocolos.statusIntimacao, status) as any);
-      conditions.push(eq(protocolos.tituloEncerrado, 0) as any);
+      conditions.push(eq(protocolos.tituloEncerrado, false) as any);
     } else if (status === "encerrado") {
-      conditions.push(eq(protocolos.tituloEncerrado, 1) as any);
+      conditions.push(eq(protocolos.tituloEncerrado, true) as any);
     } else if (status === "edital") {
       conditions.push(like(protocolos.canalIntimacao, "Edital") as any);
-      conditions.push(eq(protocolos.tituloEncerrado, 0) as any);
+      conditions.push(eq(protocolos.tituloEncerrado, false) as any);
     }
 
     // Column-specific filter (spreadsheet-style)
@@ -970,7 +970,7 @@ router.post("/importar-situacoes", upload.single("file"), async (req, res) => {
         const chunk = group.ids.slice(i, i + CHUNK);
         const updateSet: Record<string, unknown> = {
           situacaoTitulo: group.situacao,
-          tituloEncerrado: group.encerrado ? 1 : 0,
+          tituloEncerrado: group.encerrado ? true : false,
         };
         // EDITAL: mark as intimado via Edital (only if not already intimado)
         if (group.edital) {
@@ -1017,7 +1017,7 @@ router.patch("/atualizar-situacao", async (req, res) => {
 
     const updateSet: Record<string, unknown> = {
       situacaoTitulo: situacaoUp,
-      tituloEncerrado: encerrado ? 1 : 0,
+      tituloEncerrado: encerrado ? true : false,
     };
     if (edital) {
       updateSet.statusIntimacao = "intimado";
@@ -1055,10 +1055,10 @@ async function computeGaps(
   // Base filter: exclude encerrados
   const baseWhere = dataCorte
     ? and(
-        eq(protocolos.tituloEncerrado, 0) as any,
+        eq(protocolos.tituloEncerrado, false) as any,
         sql`dataProtocolo IS NOT NULL AND dataProtocolo >= ${dataCorte}`
       )
-    : (eq(protocolos.tituloEncerrado, 0) as any);
+    : (eq(protocolos.tituloEncerrado, false) as any);
 
   // Exclude encerrados from gap analysis — they are intentionally absent from the sequence
   const result = await db.select({
@@ -1159,12 +1159,12 @@ router.get("/stats", async (req, res) => {
 
     if (status === "pendente" || status === "intimado") {
       conditions.push(eq(protocolos.statusIntimacao, status) as any);
-      conditions.push(eq(protocolos.tituloEncerrado, 0) as any);
+      conditions.push(eq(protocolos.tituloEncerrado, false) as any);
     } else if (status === "encerrado") {
-      conditions.push(eq(protocolos.tituloEncerrado, 1) as any);
+      conditions.push(eq(protocolos.tituloEncerrado, true) as any);
     } else if (status === "edital") {
       conditions.push(like(protocolos.canalIntimacao, "Edital") as any);
-      conditions.push(eq(protocolos.tituloEncerrado, 0) as any);
+      conditions.push(eq(protocolos.tituloEncerrado, false) as any);
     }
 
     if (filterCol && filterVal) {
@@ -1193,9 +1193,9 @@ router.get("/stats", async (req, res) => {
 
     const aggQuery = db.select({
       totalFiltrado: sql<number>`COUNT(*)`,
-      totalPendentes: sql<number>`SUM(CASE WHEN ${protocolos.statusIntimacao} = 'pendente' AND ${protocolos.tituloEncerrado} = 0 THEN 1 ELSE 0 END)`,
+      totalPendentes: sql<number>`SUM(CASE WHEN ${protocolos.statusIntimacao} = 'pendente' AND ${protocolos.tituloEncerrado} = false THEN 1 ELSE 0 END)`,
       totalIntimados: sql<number>`SUM(CASE WHEN ${protocolos.statusIntimacao} = 'intimado' THEN 1 ELSE 0 END)`,
-      totalEncerrados: sql<number>`SUM(CASE WHEN ${protocolos.tituloEncerrado} = 1 THEN 1 ELSE 0 END)`,
+      totalEncerrados: sql<number>`SUM(CASE WHEN ${protocolos.tituloEncerrado} = true THEN 1 ELSE 0 END)`,
     }).from(protocolos);
     const aggResult = whereClause ? await aggQuery.where(whereClause) : await aggQuery;
     const agg = aggResult[0] || { totalFiltrado: 0, totalPendentes: 0, totalIntimados: 0, totalEncerrados: 0 };

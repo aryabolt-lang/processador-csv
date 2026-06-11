@@ -118,14 +118,14 @@ router.post("/templates", async (req: Request, res: Response) => {
 
     // If setting as default, clear existing default first
     if (padrao) {
-      await db.update(whatsappTemplates).set({ padrao: 0 }).where(eq(whatsappTemplates.padrao, 1));
+      await db.update(whatsappTemplates).set({ padrao: false }).where(eq(whatsappTemplates.padrao, true));
     }
 
     const result = await db.insert(whatsappTemplates).values({
       nome,
       descricao: descricao || null,
       colunas: colunas as any,
-      padrao: padrao ? 1 : 0,
+      padrao: padrao ? true : false,
     });
     const id = (result as any).insertId;
     const created = await db.select().from(whatsappTemplates).where(eq(whatsappTemplates.id, id));
@@ -156,14 +156,14 @@ router.put("/templates/:id", async (req: Request, res: Response) => {
 
     // If setting as default, clear existing default first
     if (padrao) {
-      await db.update(whatsappTemplates).set({ padrao: 0 }).where(eq(whatsappTemplates.padrao, 1));
+      await db.update(whatsappTemplates).set({ padrao: false }).where(eq(whatsappTemplates.padrao, true));
     }
 
     const updates: Record<string, any> = {};
     if (nome !== undefined) updates.nome = nome;
     if (descricao !== undefined) updates.descricao = descricao;
     if (colunas !== undefined) updates.colunas = colunas;
-    if (padrao !== undefined) updates.padrao = padrao ? 1 : 0;
+    if (padrao !== undefined) updates.padrao = padrao ? true : false;
 
     await db.update(whatsappTemplates).set(updates).where(eq(whatsappTemplates.id, id));
     const updated = await db.select().from(whatsappTemplates).where(eq(whatsappTemplates.id, id));
@@ -203,8 +203,8 @@ router.post("/templates/:id/padrao", async (req: Request, res: Response) => {
     if (isNaN(id)) return res.status(400).json({ error: "ID inválido." });
     const db = await getDb();
     if (!db) return res.status(503).json({ error: "Banco de dados indisponível." });
-    await db.update(whatsappTemplates).set({ padrao: 0 }).where(eq(whatsappTemplates.padrao, 1));
-    await db.update(whatsappTemplates).set({ padrao: 1 }).where(eq(whatsappTemplates.id, id));
+    await db.update(whatsappTemplates).set({ padrao: false }).where(eq(whatsappTemplates.padrao, true));
+    await db.update(whatsappTemplates).set({ padrao: true }).where(eq(whatsappTemplates.id, id));
     return res.json({ ok: true });
   } catch (err: any) {
     console.error("[whatsapp/templates padrao]", err);

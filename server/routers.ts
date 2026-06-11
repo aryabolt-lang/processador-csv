@@ -33,7 +33,7 @@ export const appRouter = router({
         const user = await db.getUserByEmail(input.email);
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-        const token = await signSession({ userId: user.id, openId: user.openId });
+        const token = await signSession({ userId: user.id, openId: user.openId! });
         ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: ONE_YEAR_MS });
         return { success: true };
       }),
@@ -50,9 +50,9 @@ export const appRouter = router({
         const valid = await bcrypt.compare(input.password, user.passwordHash);
         if (!valid) throw new TRPCError({ code: "UNAUTHORIZED", message: "E-mail ou senha inválidos" });
 
-        await db.upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+        await db.upsertUser({ openId: user.openId ?? undefined, lastSignedIn: new Date() });
 
-        const token = await signSession({ userId: user.id, openId: user.openId });
+        const token = await signSession({ userId: user.id, openId: user.openId! });
         ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: ONE_YEAR_MS });
         return { success: true };
       }),
