@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "pnpm run build:client && npx esbuild api/index.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js --tsconfig=tsconfig.json",
+  "buildCommand": "pnpm run build:client && npx esbuild api/_source.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js --tsconfig=tsconfig.json",
   "outputDirectory": "public",
   "framework": null,
   "functions": {
