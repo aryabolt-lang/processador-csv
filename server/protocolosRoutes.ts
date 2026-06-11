@@ -199,16 +199,17 @@ router.post("/import", upload.single("file"), async (req, res) => {
     const CHUNK = 500;
     for (let i = 0; i < toInsert.length; i += CHUNK) {
       const chunk = toInsert.slice(i, i + CHUNK);
-      await db.insert(protocolos).values(chunk).onDuplicateKeyUpdate({
+      await db.insert(protocolos).values(chunk).onConflictDoUpdate({
+        target: [protocolos.protocolo, protocolos.documento],
         set: {
-          nomeDevedor: sql`IF(nomeDevedor IS NULL OR nomeDevedor = '', VALUES(nomeDevedor), nomeDevedor)`,
-          tipoDoc: sql`IF(tipoDoc = 'INVALIDO', VALUES(tipoDoc), tipoDoc)`,
-          numeroTitulo: sql`IF(numeroTitulo IS NULL OR numeroTitulo = '', VALUES(numeroTitulo), numeroTitulo)`,
-          credor: sql`IF(credor IS NULL OR credor = '', VALUES(credor), credor)`,
-          docCredor: sql`IF(docCredor IS NULL OR docCredor = '', VALUES(docCredor), docCredor)`,
-          telefone: sql`IF(telefone IS NULL OR telefone = '', VALUES(telefone), telefone)`,
-          valorProtesto: sql`IF(valorProtesto IS NULL OR valorProtesto = '', VALUES(valorProtesto), valorProtesto)`,
-          nomeArquivo: sql`VALUES(nomeArquivo)`,
+          nomeDevedor: sql`CASE WHEN ${protocolos.nomeDevedor} IS NULL OR ${protocolos.nomeDevedor} = '' THEN EXCLUDED.nome_devedor ELSE ${protocolos.nomeDevedor} END`,
+          tipoDoc: sql`CASE WHEN ${protocolos.tipoDoc} = 'INVALIDO' THEN EXCLUDED.tipo_doc ELSE ${protocolos.tipoDoc} END`,
+          numeroTitulo: sql`CASE WHEN ${protocolos.numeroTitulo} IS NULL OR ${protocolos.numeroTitulo} = '' THEN EXCLUDED.numero_titulo ELSE ${protocolos.numeroTitulo} END`,
+          credor: sql`CASE WHEN ${protocolos.credor} IS NULL OR ${protocolos.credor} = '' THEN EXCLUDED.credor ELSE ${protocolos.credor} END`,
+          docCredor: sql`CASE WHEN ${protocolos.docCredor} IS NULL OR ${protocolos.docCredor} = '' THEN EXCLUDED.doc_credor ELSE ${protocolos.docCredor} END`,
+          telefone: sql`CASE WHEN ${protocolos.telefone} IS NULL OR ${protocolos.telefone} = '' THEN EXCLUDED.telefone ELSE ${protocolos.telefone} END`,
+          valorProtesto: sql`CASE WHEN ${protocolos.valorProtesto} IS NULL OR ${protocolos.valorProtesto} = '' THEN EXCLUDED.valor_protesto ELSE ${protocolos.valorProtesto} END`,
+          nomeArquivo: sql`EXCLUDED.nome_arquivo`,
         },
       });
       imported += chunk.length;
@@ -674,7 +675,7 @@ router.put("/config/mensagem", async (req, res) => {
     await db
       .insert(configMensagemWhatsapp)
       .values({ id: 1, template })
-      .onDuplicateKeyUpdate({ set: { template } });
+      .onConflictDoUpdate({ target: configMensagemWhatsapp.id, set: { template } });
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

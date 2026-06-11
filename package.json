@@ -65,7 +65,6 @@
     "jose": "6.1.0",
     "lucide-react": "^0.453.0",
     "multer": "^2.1.1",
-    "mysql2": "^3.15.0",
     "nanoid": "^5.1.5",
     "next-themes": "^0.4.6",
     "node-fetch": "^3.3.2",
@@ -84,7 +83,8 @@
     "wouter": "^3.3.5",
     "xlsx": "^0.18.5",
     "zod": "^4.1.12",
-    "bcryptjs": "^2.4.3"
+    "bcryptjs": "^2.4.3",
+    "@neondatabase/serverless": "^0.10.4"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",

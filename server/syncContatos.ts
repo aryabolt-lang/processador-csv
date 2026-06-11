@@ -116,18 +116,19 @@ export async function syncContatos(
   let upserted = 0;
   for (let i = 0; i < batch.length; i += BATCH_SIZE) {
     const chunk = batch.slice(i, i + BATCH_SIZE);
-    await db.insert(contatos).values(chunk).onDuplicateKeyUpdate({
+    await db.insert(contatos).values(chunk).onConflictDoUpdate({
+      target: contatos.documento,
       set: {
         // Merge: only fill empty fields, never overwrite existing data
-        nomeRazaoSocial: sql`COALESCE(nomeRazaoSocial, VALUES(nomeRazaoSocial))`,
-        celular1: sql`COALESCE(celular1, VALUES(celular1))`,
-        celular2: sql`COALESCE(celular2, VALUES(celular2))`,
-        celular3: sql`COALESCE(celular3, VALUES(celular3))`,
-        celular4: sql`COALESCE(celular4, VALUES(celular4))`,
-        email1: sql`COALESCE(email1, VALUES(email1))`,
-        email2: sql`COALESCE(email2, VALUES(email2))`,
-        email3: sql`COALESCE(email3, VALUES(email3))`,
-        origemArquivo: sql`VALUES(origemArquivo)`,
+        nomeRazaoSocial: sql`COALESCE(${contatos.nomeRazaoSocial}, EXCLUDED.nome_razao_social)`,
+        celular1: sql`COALESCE(${contatos.celular1}, EXCLUDED.celular1)`,
+        celular2: sql`COALESCE(${contatos.celular2}, EXCLUDED.celular2)`,
+        celular3: sql`COALESCE(${contatos.celular3}, EXCLUDED.celular3)`,
+        celular4: sql`COALESCE(${contatos.celular4}, EXCLUDED.celular4)`,
+        email1: sql`COALESCE(${contatos.email1}, EXCLUDED.email1)`,
+        email2: sql`COALESCE(${contatos.email2}, EXCLUDED.email2)`,
+        email3: sql`COALESCE(${contatos.email3}, EXCLUDED.email3)`,
+        origemArquivo: sql`EXCLUDED.origem_arquivo`,
       },
     });
     upserted += chunk.length;

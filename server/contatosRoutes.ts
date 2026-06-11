@@ -323,40 +323,40 @@ router.post("/import", upload.single("file"), async (req: Request, res: Response
       const batch = validRecords.slice(b, b + BATCH_SIZE);
 
       if (duplicateMode === "ignore") {
-        await db.insert(contatos).values(batch).onDuplicateKeyUpdate({
-          set: { documento: sql`documento` },
-        });
+        await db.insert(contatos).values(batch).onConflictDoNothing();
         totalImportados += batch.length;
       } else if (duplicateMode === "update") {
         // Overwrite existing fields with new values (use COALESCE to keep if new is null)
-        await db.insert(contatos).values(batch).onDuplicateKeyUpdate({
+        await db.insert(contatos).values(batch).onConflictDoUpdate({
+          target: contatos.documento,
           set: {
-            tipoDoc: sql`VALUES(tipoDoc)`,
-            nomeRazaoSocial: sql`COALESCE(VALUES(nomeRazaoSocial), nomeRazaoSocial)`,
-            celular1: sql`COALESCE(VALUES(celular1), celular1)`,
-            celular2: sql`COALESCE(VALUES(celular2), celular2)`,
-            celular3: sql`COALESCE(VALUES(celular3), celular3)`,
-            celular4: sql`COALESCE(VALUES(celular4), celular4)`,
-            email1: sql`COALESCE(VALUES(email1), email1)`,
-            email2: sql`COALESCE(VALUES(email2), email2)`,
-            email3: sql`COALESCE(VALUES(email3), email3)`,
-            origemArquivo: sql`VALUES(origemArquivo)`,
+            tipoDoc: sql`EXCLUDED.tipo_doc`,
+            nomeRazaoSocial: sql`COALESCE(EXCLUDED.nome_razao_social, ${contatos.nomeRazaoSocial})`,
+            celular1: sql`COALESCE(EXCLUDED.celular1, ${contatos.celular1})`,
+            celular2: sql`COALESCE(EXCLUDED.celular2, ${contatos.celular2})`,
+            celular3: sql`COALESCE(EXCLUDED.celular3, ${contatos.celular3})`,
+            celular4: sql`COALESCE(EXCLUDED.celular4, ${contatos.celular4})`,
+            email1: sql`COALESCE(EXCLUDED.email1, ${contatos.email1})`,
+            email2: sql`COALESCE(EXCLUDED.email2, ${contatos.email2})`,
+            email3: sql`COALESCE(EXCLUDED.email3, ${contatos.email3})`,
+            origemArquivo: sql`EXCLUDED.origem_arquivo`,
           },
         });
         totalImportados += batch.length;
         totalAtualizados += batch.length; // approximate
       } else {
         // merge: only fill empty fields, never overwrite existing data
-        await db.insert(contatos).values(batch).onDuplicateKeyUpdate({
+        await db.insert(contatos).values(batch).onConflictDoUpdate({
+          target: contatos.documento,
           set: {
-            nomeRazaoSocial: sql`COALESCE(nomeRazaoSocial, VALUES(nomeRazaoSocial))`,
-            celular1: sql`COALESCE(celular1, VALUES(celular1))`,
-            celular2: sql`COALESCE(celular2, VALUES(celular2))`,
-            celular3: sql`COALESCE(celular3, VALUES(celular3))`,
-            celular4: sql`COALESCE(celular4, VALUES(celular4))`,
-            email1: sql`COALESCE(email1, VALUES(email1))`,
-            email2: sql`COALESCE(email2, VALUES(email2))`,
-            email3: sql`COALESCE(email3, VALUES(email3))`,
+            nomeRazaoSocial: sql`COALESCE(${contatos.nomeRazaoSocial}, EXCLUDED.nome_razao_social)`,
+            celular1: sql`COALESCE(${contatos.celular1}, EXCLUDED.celular1)`,
+            celular2: sql`COALESCE(${contatos.celular2}, EXCLUDED.celular2)`,
+            celular3: sql`COALESCE(${contatos.celular3}, EXCLUDED.celular3)`,
+            celular4: sql`COALESCE(${contatos.celular4}, EXCLUDED.celular4)`,
+            email1: sql`COALESCE(${contatos.email1}, EXCLUDED.email1)`,
+            email2: sql`COALESCE(${contatos.email2}, EXCLUDED.email2)`,
+            email3: sql`COALESCE(${contatos.email3}, EXCLUDED.email3)`,
           },
         });
         totalImportados += batch.length;
