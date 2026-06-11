@@ -11,7 +11,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
-    "build:client": "vite build && esbuild api/index.ts --platform=node --packages=external --bundle --format=esm --outfile=api/index.js"
+    "build:client": "vite build && esbuild api/index.ts --platform=node --bundle --format=esm --outfile=api/index.js --external:pg-native --external:bcrypt --external:canvas --external:ws --external:bufferutil --external:utf-8-validate"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
